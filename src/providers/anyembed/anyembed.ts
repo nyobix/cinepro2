@@ -12,9 +12,9 @@ import { BaseProvider } from '@omss/framework';
 import { generateRandomUserAgent } from '../../utils/ua.js';
 import { AnyEmbedApiResponse, TokenResponse } from './anyembed.types.js';
 
-// anyembed is still up and coming. 
-// their api is unstable and their sources return 403's and 
-// their own api returns pretty often a 500.... 
+// anyembed is still up and coming.
+// their api is unstable and their sources return 403's and
+// their own api returns pretty often a 500....
 // for now we will keep this provider disabled until they stabilize their service a bit more.
 // probably they'll change the logic, but for now we can keep the current implementation and just enable it once they fix their issues on their end.
 export class AnyEmbed extends BaseProvider {
@@ -51,7 +51,7 @@ export class AnyEmbed extends BaseProvider {
 
     async getToken(): Promise<string> {
         const req = await fetch(this.BASE_URL + '/api/v1/session', {
-            headers: this.HEADERS,
+            headers: this.HEADERS
         });
         const resp = (await req.json()) as TokenResponse;
         if (resp.token) {
@@ -92,8 +92,6 @@ export class AnyEmbed extends BaseProvider {
 
             const anyembedsources = await this.getApiResponse(media);
 
-            
-
             // Map to ProviderResult
             return this.mapToProviderResult(anyembedsources);
         } catch (error) {
@@ -105,93 +103,98 @@ export class AnyEmbed extends BaseProvider {
         }
     }
 
-    private async getApiResponse(media: ProviderMediaObject): Promise<AnyEmbedApiResponse> {
+    private async getApiResponse(
+        media: ProviderMediaObject
+    ): Promise<AnyEmbedApiResponse> {
         const url = `${this.BASE_URL}/api/v1/stream/${media.tmdbId}`;
         const response = await fetch(url, {
             headers: this.HEADERS
         });
-        return await response.json() as AnyEmbedApiResponse;
+        return (await response.json()) as AnyEmbedApiResponse;
     }
 
-private mapToProviderResult(apiResponse: AnyEmbedApiResponse): ProviderResult {
-    const diagnostics: Diagnostic[] = [];
-    const subtitlesMap = new Map<string, Subtitle>();
-    const sources: Source[] = [];
+    private mapToProviderResult(
+        apiResponse: AnyEmbedApiResponse
+    ): ProviderResult {
+        const diagnostics: Diagnostic[] = [];
+        const subtitlesMap = new Map<string, Subtitle>();
+        const sources: Source[] = [];
 
-    const inferSourceType = (url: string): SourceType => {
-        const cleanUrl = url.split('?')[0].toLowerCase();
+        const inferSourceType = (url: string): SourceType => {
+            const cleanUrl = url.split('?')[0].toLowerCase();
 
-        if (cleanUrl.endsWith('.m3u8')) return 'hls';
-        if (cleanUrl.endsWith('.mpd')) return 'dash';
-        if (cleanUrl.endsWith('.mp4')) return 'mp4';
-        if (cleanUrl.endsWith('.mkv')) return 'mkv';
-        if (cleanUrl.endsWith('.webm')) return 'webm';
+            if (cleanUrl.endsWith('.m3u8')) return 'hls';
+            if (cleanUrl.endsWith('.mpd')) return 'dash';
+            if (cleanUrl.endsWith('.mp4')) return 'mp4';
+            if (cleanUrl.endsWith('.mkv')) return 'mkv';
+            if (cleanUrl.endsWith('.webm')) return 'webm';
 
-        return 'hls';
-    };
+            return 'hls';
+        };
 
-    const inferSubtitleFormat = (url: string): SubtitleFormat => {
-        const cleanUrl = url.split('?')[0].toLowerCase();
+        const inferSubtitleFormat = (url: string): SubtitleFormat => {
+            const cleanUrl = url.split('?')[0].toLowerCase();
 
-        if (cleanUrl.endsWith('.vtt')) return 'vtt';
-        if (cleanUrl.endsWith('.srt')) return 'srt';
-        if (cleanUrl.endsWith('.ass')) return 'ass';
-        if (cleanUrl.endsWith('.ssa')) return 'ssa';
-        if (cleanUrl.endsWith('.ttml') || cleanUrl.endsWith('.xml')) return 'ttml';
+            if (cleanUrl.endsWith('.vtt')) return 'vtt';
+            if (cleanUrl.endsWith('.srt')) return 'srt';
+            if (cleanUrl.endsWith('.ass')) return 'ass';
+            if (cleanUrl.endsWith('.ssa')) return 'ssa';
+            if (cleanUrl.endsWith('.ttml') || cleanUrl.endsWith('.xml'))
+                return 'ttml';
 
-        return 'vtt';
-    };
+            return 'vtt';
+        };
 
-    if (!apiResponse.success) {
-        return this.emptyResult('AnyEmbed returned unsuccessful response');
-    }
+        if (!apiResponse.success) {
+            return this.emptyResult('AnyEmbed returned unsuccessful response');
+        }
 
-    for (const providerSource of apiResponse.sources ?? []) {
-        for (const stream of providerSource.streams ?? []) {
-            const type = inferSourceType(stream.url);
+        for (const providerSource of apiResponse.sources ?? []) {
+            for (const stream of providerSource.streams ?? []) {
+                const type = inferSourceType(stream.url);
 
-            sources.push({
-                url: this.createProxyUrl(stream.url, stream.headers),
-                type,
-                quality: stream.quality || 'unknown',
-                audioTracks: [{
-                    label: 'English',
-                    language: 'en'
-                }],
-                provider: {
-                    id: this.id,
-                    name: this.name
-                }
-            });
+                sources.push({
+                    url: this.createProxyUrl(stream.url, stream.headers),
+                    type,
+                    quality: stream.quality || 'unknown',
+                    audioTracks: [
+                        {
+                            label: 'English',
+                            language: 'en'
+                        }
+                    ],
+                    provider: {
+                        id: this.id,
+                        name: this.name
+                    }
+                });
 
-            for (const sub of stream.subtitles ?? []) {
-                const key = `${sub.url}::${sub.label}`;
-                if (!subtitlesMap.has(key)) {
-                    const format = inferSubtitleFormat(sub.url);
+                for (const sub of stream.subtitles ?? []) {
+                    const key = `${sub.url}::${sub.label}`;
+                    if (!subtitlesMap.has(key)) {
+                        const format = inferSubtitleFormat(sub.url);
 
-                    subtitlesMap.set(key, {
-                        url: this.createProxyUrl(sub.url),
-                        label: sub.label || sub.language || 'Unknown',
-                        format
-                    });
+                        subtitlesMap.set(key, {
+                            url: this.createProxyUrl(sub.url),
+                            label: sub.label || sub.language || 'Unknown',
+                            format
+                        });
+                    }
                 }
             }
         }
-    }
 
-    return {
-        sources,
-        subtitles: [...subtitlesMap.values()],
-        diagnostics
-    };
-}
+        return {
+            sources,
+            subtitles: [...subtitlesMap.values()],
+            diagnostics
+        };
+    }
 
     /**
      * Return empty result with diagnostic
      */
-    private emptyResult(
-        message: string,
-    ): ProviderResult {
+    private emptyResult(message: string): ProviderResult {
         return {
             sources: [],
             subtitles: [],

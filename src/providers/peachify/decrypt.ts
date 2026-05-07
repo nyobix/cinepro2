@@ -27,14 +27,9 @@ type EncryptedPayload = {
  * Convert a base64url string into bytes.
  */
 function base64UrlToBytes(value: string): Uint8Array {
-    const base64 = value
-        .replace(/-/g, '+')
-        .replace(/_/g, '/');
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
 
-    const padded = base64.padEnd(
-        Math.ceil(base64.length / 4) * 4,
-        '='
-    );
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
 
     const binary = Buffer.from(padded, 'base64');
 

@@ -62,12 +62,12 @@ export const knownThirdPartyProxies: Record<string, RegExp[]> = {
         /^https:\/\/[^/]+\.workers\.dev\/((?:https?:\/\/)?[^/]+\/file2\/.+)$/, // any workers.dev/[domain]/file2/[content] capturer
         /^https:\/\/.+?\.workers\.dev\/((?:https?:\/\/).+)$/, // any [subdomain].workers.dev/[https://..... link] capturer
         /\/proxy\/(.+)$/, // Generic /proxy/encoded
-        /\/(?:m3u8|mp4)-proxy\?url=(.+?)(?:&|$)/,// m3u8-proxy?url=
+        /\/(?:m3u8|mp4)-proxy\?url=(.+?)(?:&|$)/, // m3u8-proxy?url=
         /\/api\/[^/]+\/proxy\?url=(.+)$/, // /api/*/proxy?url=
         /\/proxy\?.*url=([^&]+)/, // /proxy?url= (with other params)
         /\/stream\/proxy\/(.+)$/, // /stream/proxy/
         /^https:\/\/[^/]+\/((?:https?:\/\/)?[a-zA-Z0-9.-]+\/file2\/.+)$/, // any [domain]/file2/[content] capturer (non-workers.dev)
-        /^https:\/\/[^/]+\.workers\.dev\/(?:m3u8|mp4)-proxy\?url=(.+?)(?:&|$)/,
+        /^https:\/\/[^/]+\.workers\.dev\/(?:m3u8|mp4)-proxy\?url=(.+?)(?:&|$)/
     ]
 };
 

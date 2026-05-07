@@ -143,7 +143,7 @@ export class PeachifyProvider extends BaseProvider {
             .map((s) => this.parseSubtitle(s, serverName))
             .filter((s): s is PeachifyParsedSubtitle => s !== null);
 
-            const sources: ProviderResult['sources'] = parsed.map((s) => ({
+        const sources: ProviderResult['sources'] = parsed.map((s) => ({
             url: this.createProxyUrl(s.url, s.headers ?? this.HEADERS),
             type: s.type,
             quality: s.quality?.toString() ?? 'Auto',

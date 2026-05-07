@@ -152,13 +152,16 @@ export class VidNestProvider extends BaseProvider {
 
         delta: {
             parse: (d) => decrypt<deltaResponse>(d),
-            mapSources: (root) => root.streams.map((s) => ({
-                url: this.createProxyUrl(s.url, this.HEADERS),
-                type: this.inferSourceType(s.type, s.url),
-                quality: 'Auto',
-                audioTracks: [{ language: s.language.slice(0, 3), label: s.language }],
-                provider: { id: this.id, name: this.name }
-            })),
+            mapSources: (root) =>
+                root.streams.map((s) => ({
+                    url: this.createProxyUrl(s.url, this.HEADERS),
+                    type: this.inferSourceType(s.type, s.url),
+                    quality: 'Auto',
+                    audioTracks: [
+                        { language: s.language.slice(0, 3), label: s.language }
+                    ],
+                    provider: { id: this.id, name: this.name }
+                })),
             mapSubtitles: () => []
         },
 
@@ -177,13 +180,16 @@ export class VidNestProvider extends BaseProvider {
 
         moviebox: {
             parse: (d) => decrypt<movieboxSource>(d),
-            mapSources: (root) => root.url.map((u) => ({
-                url: this.createProxyUrl(u.link, this.HEADERS),
-                type: this.inferSourceType(u.type, u.link),
-                quality: 'Auto',
-                audioTracks: [{ language: u.lang.slice(0, 3), label: u.lang }],
-                provider: { id: this.id, name: this.name }
-            })),
+            mapSources: (root) =>
+                root.url.map((u) => ({
+                    url: this.createProxyUrl(u.link, this.HEADERS),
+                    type: this.inferSourceType(u.type, u.link),
+                    quality: 'Auto',
+                    audioTracks: [
+                        { language: u.lang.slice(0, 3), label: u.lang }
+                    ],
+                    provider: { id: this.id, name: this.name }
+                })),
             mapSubtitles: () => []
         }
     };

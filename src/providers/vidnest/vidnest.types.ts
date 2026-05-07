@@ -114,20 +114,19 @@ export interface purstreamSource {
 
 // moviebox
 export interface movieboxSource {
-  headers: Record<string, string>
-  needConfig: boolean
-  provider: string
-  proxy: boolean
-  url: movieboxUrl[]
+    headers: Record<string, string>;
+    needConfig: boolean;
+    provider: string;
+    proxy: boolean;
+    url: movieboxUrl[];
 }
 
 export interface movieboxUrl {
-  lang: string
-  link: string
-  resolution: string
-  type: string
+    lang: string;
+    link: string;
+    resolution: string;
+    type: string;
 }
-
 
 // SERVER MAP
 export interface ServerMap {
