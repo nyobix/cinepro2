@@ -24,9 +24,6 @@ export class PoprProvider extends BaseProvider {
         supportedContentTypes: ['movies', 'tv']
     };
 
-    /**
-     * Fetch movie sources
-     */
     async getMovieSources(media: ProviderMediaObject): Promise<ProviderResult> {
         try {
             let movieSource = await this.fetchSource(media, 'movie');
@@ -46,9 +43,6 @@ export class PoprProvider extends BaseProvider {
         }
     }
 
-    /**
-     * Fetch TV episode sources
-     */
     async getTVSources(media: ProviderMediaObject): Promise<ProviderResult> {
         try {
             let tvSource = await this.fetchSource(media, 'tv');
@@ -70,7 +64,8 @@ export class PoprProvider extends BaseProvider {
 
     private async checkStreamType(
         url: string,
-        headers: Record<string, string> = {}
+        headers: Record<string, string> = {},
+        serverName: string
     ): Promise<{ isValid: boolean; type: SourceType }> {
         try {
             const res = await fetch(url, {
@@ -78,7 +73,11 @@ export class PoprProvider extends BaseProvider {
                 signal: AbortSignal.timeout(5000),
                 redirect: 'follow'
             });
-            if (!res.ok) return { isValid: false, type: 'mp4' };
+
+            if (!res.ok) {
+                this.console.log(`[Popr] [${serverName}] Validation failed: HTTP ${res.status}`);
+                return { isValid: false, type: 'mp4' };
+            }
 
             const contentType = res.headers.get('content-type') || '';
             if (
@@ -96,24 +95,30 @@ export class PoprProvider extends BaseProvider {
                     const t = l.trim();
                     return t && !t.startsWith('#');
                 });
-                return { isValid: segmentLines.length > 0, type: 'hls' };
+                
+                if (segmentLines.length === 0) {
+                    this.console.log(`[Popr] [${serverName}] Validation failed: Empty M3U8 playlist.`);
+                    return { isValid: false, type: 'hls' };
+                }
+
+                return { isValid: true, type: 'hls' };
             }
 
-            
             if (
                 trimmed.toLowerCase().includes('<!doctype html>') ||
                 trimmed.toLowerCase().includes('<html')
             ) {
+                this.console.log(`[Popr] [${serverName}] Validation failed: Returned HTML error page.`);
                 return { isValid: false, type: 'mp4' };
             }
 
             return { isValid: true, type: 'mp4' };
-        } catch {
+        } catch (error) {
+            this.console.log(`[Popr] [${serverName}] Validation request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             return { isValid: false, type: 'mp4' };
         }
     }
 
-    // https://popr.ink/api/vidnest?id=262848&type=tv&server=catflix&season=1&episode=1
     private async fetchSource(
         media: ProviderMediaObject,
         type: 'tv' | 'movie' = 'movie'
@@ -151,14 +156,17 @@ export class PoprProvider extends BaseProvider {
                 })
                     .then(async (res) => {
                         if (res.status !== 200) return null;
+                        
                         const data = (await res.json()) as VidnestResponse;
                         const stream = data?.results?.[0]?.streams?.[0];
+                        
                         if (!stream?.url) return null;
 
                         const streamHeaders = stream.headers || {};
                         const { isValid, type } = await this.checkStreamType(
                             stream.url,
-                            streamHeaders
+                            streamHeaders,
+                            server
                         );
 
                         if (!isValid) return null;
@@ -168,7 +176,6 @@ export class PoprProvider extends BaseProvider {
                         const QUALITIES = ['Hindi', 'English'];
                         const languages = QUALITIES.includes(quality);
 
-                        
                         const proxyHeaders = {
                             ...this.HEADERS,
                             ...streamHeaders
@@ -197,7 +204,10 @@ export class PoprProvider extends BaseProvider {
                             subtitles: data.results?.[0]?.subtitles || []
                         };
                     })
-                    .catch(() => null) // swallow per-request errors
+                    .catch((error) => {
+                        this.console.error(`[Popr] [${server}] Request failed: ${error instanceof Error ? error.message : 'Unknown'}`);
+                        return null;
+                    })
         );
 
         const results = await Promise.allSettled(requests);
@@ -213,7 +223,6 @@ export class PoprProvider extends BaseProvider {
             for (const sub of res.value.subtitles) {
                 if (!sub?.url) continue;
 
-                // dedupe subtitles by URL
                 if (!subtitlesMap.has(sub.url)) {
                     subtitlesMap.set(sub.url, {
                         url: this.createProxyUrl(sub.url),
@@ -247,9 +256,7 @@ export class PoprProvider extends BaseProvider {
             ]
         };
     }
-    /**
-     * Health check
-     */
+
     async healthCheck(): Promise<boolean> {
         try {
             const response = await fetch(this.BASE_URL, {
