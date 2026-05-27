@@ -8,6 +8,8 @@ import { generateRandomUserAgent } from '../../utils/ua.js';
 import { TulnexApiResponse } from './tulnex.types.js';
 import { decryptPayload } from './decrypt.js';
 import { extractUrl } from './tulnex.mapper.js';
+import { getScraperApiClient } from '../../utils/scraperApi.js';
+import { getRedisCache } from '../../utils/redisCache.js';
 
 export class TulnexProvider extends BaseProvider {
     readonly id = 'tulnex';
@@ -105,33 +107,74 @@ export class TulnexProvider extends BaseProvider {
     }
 
     private async doScrape(serverName: string, media: ProviderMediaObject) {
-        const url =
+        // Check Redis cache first
+        const cache = getRedisCache();
+        const cached = await cache.getStreamLink(
+            this.id,
+            media.type,
+            media.tmdbId,
+            media.s,
+            media.e
+        );
+
+        if (cached) {
+            console.log(
+                `[${this.name}] Cache hit for ${media.type} ${media.tmdbId}${media.s ? `:s${media.s}e${media.e}` : ''}`
+            );
+            return cached;
+        }
+
+        // Build the target URL
+        const targetUrl =
             media.type === 'movie'
-                ? this.BASE_URL + '/' + serverName + '/movie/' + media.tmdbId
-                : this.BASE_URL +
-                  '/' +
-                  serverName +
-                  '/tv/' +
-                  media.tmdbId +
-                  '/' +
-                  media.s +
-                  '/' +
-                  media.e;
-        const req = await fetch(url, {
-            headers: { ...this.HEADERS, Accept: 'application/json, */*' }
-        });
-        if (!req.ok) {
+                ? `${this.BASE_URL}/${serverName}/movie/${media.tmdbId}`
+                : `${this.BASE_URL}/${serverName}/tv/${media.tmdbId}/${media.s}/${media.e}`;
+
+        try {
+            // Route through Scraper API for rotating IPs
+            const scraperApi = getScraperApiClient();
+            const response = await scraperApi.fetchJson<TulnexApiResponse>(
+                {
+                    url: targetUrl,
+                    headers: { ...this.HEADERS, Accept: 'application/json, */*' }
+                }
+            );
+
+            if (!response.payload) {
+                return null;
+            }
+
+            const decrypted = await decryptPayload(response.payload);
+            if (!decrypted) {
+                return null;
+            }
+
+            const result = extractUrl(decrypted);
+            
+            if (result) {
+                // Cache the successful result with 7-day TTL
+                await cache.setStreamLink(
+                    this.id,
+                    media.type,
+                    media.tmdbId,
+                    {
+                        url: result.url,
+                        headers: result.headers,
+                        type: result.url.includes('mkv') || result.url.includes('mp4') ? 'mp4' : 'hls'
+                    },
+                    media.s,
+                    media.e
+                );
+            }
+
+            return result;
+        } catch (error) {
+            console.error(
+                `[${this.name}] Error scraping ${serverName}:`,
+                error instanceof Error ? error.message : String(error)
+            );
             return null;
         }
-        const data = (await req.json()) as unknown as TulnexApiResponse;
-        if (data.payload === undefined) {
-            return null;
-        }
-        const decrypted = await decryptPayload(data.payload);
-        if (!decrypted) {
-            return null;
-        }
-        return extractUrl(decrypted);
     }
 
     private emptyResult(message: string): ProviderResult {
@@ -151,13 +194,15 @@ export class TulnexProvider extends BaseProvider {
 
     async healthCheck(): Promise<boolean> {
         try {
-            const response = await fetch(this.BASE_URL, {
-                method: 'HEAD',
-                headers: this.HEADERS
+            const scraperApi = getScraperApiClient();
+            const response = await scraperApi.fetch({
+                url: this.BASE_URL,
+                method: 'GET'
             });
-            return response.status === 200;
+            return response.statusCode === 200;
         } catch {
             return false;
         }
     }
 }
+
