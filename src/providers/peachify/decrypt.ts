@@ -4,7 +4,7 @@ import type { PeachifyApiResponse } from './peachify.types.js';
 const { subtle } = webcrypto;
 
 const ENCRYPTION_KEY_HEX =
-    'YThmMmExYjVlOWM0NzA4MTRmNmIyYzNhNWQ4ZTdmOWMxYTJiM2M0ZDVlM2Y3YThiOGNhZDFlMmQwYTRkNWM1YQ==';
+    'YThmMmExYjVlOWM0NzA4MTRmNmIyYzNhNWQ4ZTdmOWMxYTJiM2M0ZDVlM2Y3YThiOGNhZDFlMmQwYTRkNWM1Yg==';
 
 /**
  * Peachify payload format:
