@@ -1,5 +1,4 @@
-import Redis from 'ioredis';
-import { Logger } from '../utils/logger';
+import { Redis } from 'ioredis';
 
 export interface CacheConfig {
   host: string;
@@ -23,20 +22,17 @@ export interface StreamLinkCache {
  */
 export class CacheService {
   private redis: Redis;
-  private logger: Logger;
   private readonly STREAM_LINK_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
   private readonly CACHE_PREFIX = 'cinepro:stream:';
   private readonly METADATA_PREFIX = 'cinepro:meta:';
 
   constructor(config: CacheConfig) {
-    this.logger = new Logger('CacheService');
-    
     this.redis = new Redis({
       host: config.host,
       port: config.port,
       password: config.password,
       db: config.db || 0,
-      retryStrategy: (times) => {
+      retryStrategy: (times: number) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
@@ -45,15 +41,15 @@ export class CacheService {
     });
 
     this.redis.on('connect', () => {
-      this.logger.info('Redis cache connected successfully');
+      console.info('Redis cache connected successfully');
     });
 
-    this.redis.on('error', (error) => {
-      this.logger.error(`Redis connection error: ${error.message}`);
+    this.redis.on('error', (error: Error) => {
+      console.error(`Redis connection error: ${error.message}`);
     });
 
     this.redis.on('reconnecting', () => {
-      this.logger.warn('Redis attempting to reconnect...');
+      console.warn('Redis attempting to reconnect...');
     });
   }
 
@@ -84,7 +80,7 @@ export class CacheService {
       const cached = await this.redis.get(key);
 
       if (!cached) {
-        this.logger.debug(`Cache MISS for ${mediaId}:${provider}`);
+        console.debug(`Cache MISS for ${mediaId}:${provider}`);
         return null;
       }
 
@@ -92,7 +88,7 @@ export class CacheService {
 
       // Validate expiration
       if (data.expiresAt < Date.now()) {
-        this.logger.debug(`Cache EXPIRED for ${mediaId}:${provider}`);
+        console.debug(`Cache EXPIRED for ${mediaId}:${provider}`);
         await this.redis.del(key);
         return null;
       }
@@ -100,10 +96,10 @@ export class CacheService {
       // Update access time metadata
       await this.incrementCacheHit(mediaId);
 
-      this.logger.debug(`Cache HIT for ${mediaId}:${provider}`);
+      console.debug(`Cache HIT for ${mediaId}:${provider}`);
       return data;
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error retrieving cached stream link: ${error instanceof Error ? error.message : String(error)}`
       );
       return null;
@@ -138,12 +134,12 @@ export class CacheService {
       // Track metadata
       await this.incrementCacheMiss(mediaId);
 
-      this.logger.debug(
+      console.debug(
         `Cached stream link for ${mediaId}:${provider} (TTL: 7 days)`
       );
       return true;
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error caching stream link: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
@@ -178,7 +174,7 @@ export class CacheService {
 
       return links;
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error retrieving all cached stream links: ${error instanceof Error ? error.message : String(error)}`
       );
       return [];
@@ -192,10 +188,10 @@ export class CacheService {
     try {
       const key = this.generateCacheKey(mediaId, provider);
       const deleted = await this.redis.del(key);
-      this.logger.debug(`Invalidated cache for ${mediaId}:${provider}`);
+      console.debug(`Invalidated cache for ${mediaId}:${provider}`);
       return deleted > 0;
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error invalidating cache: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
@@ -215,10 +211,10 @@ export class CacheService {
       }
 
       await this.redis.del(...keys);
-      this.logger.debug(`Cleared all cache for media ${mediaId}`);
+      console.debug(`Cleared all cache for media ${mediaId}`);
       return true;
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error clearing media cache: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
@@ -234,7 +230,7 @@ export class CacheService {
       await this.redis.hincrby(key, 'hits', 1);
       await this.redis.expire(key, this.STREAM_LINK_TTL);
     } catch (error) {
-      this.logger.warn(
+      console.warn(
         `Error incrementing cache hit: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -249,7 +245,7 @@ export class CacheService {
       await this.redis.hincrby(key, 'misses', 1);
       await this.redis.expire(key, this.STREAM_LINK_TTL);
     } catch (error) {
-      this.logger.warn(
+      console.warn(
         `Error incrementing cache miss: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -268,7 +264,7 @@ export class CacheService {
         misses: parseInt(stats.misses || '0', 10),
       };
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error retrieving cache stats: ${error instanceof Error ? error.message : String(error)}`
       );
       return { hits: 0, misses: 0 };
@@ -297,7 +293,7 @@ export class CacheService {
         connectedClients: clientsMatch ? parseInt(clientsMatch[1], 10) : 0,
       };
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error retrieving global stats: ${error instanceof Error ? error.message : String(error)}`
       );
       return { totalKeys: 0, memoryUsage: 'unknown', connectedClients: 0 };
@@ -310,9 +306,9 @@ export class CacheService {
   async disconnect(): Promise<void> {
     try {
       await this.redis.quit();
-      this.logger.info('Redis cache disconnected');
+      console.info('Redis cache disconnected');
     } catch (error) {
-      this.logger.error(
+      console.error(
         `Error closing Redis connection: ${error instanceof Error ? error.message : String(error)}`
       );
     }
