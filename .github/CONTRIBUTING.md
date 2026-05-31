@@ -7,7 +7,6 @@ Hey there! 👋 Thanks for your interest in contributing to CinePro Core! We're 
 Before contributing, please:
 
 1. Read the [README.md](https://github.com/cinepro-org/core/blob/main/README.md) to understand the project
-2. Familiarize yourself with the [OMSS Framework](https://github.com/omss-spec/framework) and [OMSS Specification](https://github.com/omss-spec/omss-spec), since the core relies heavily on these standards
 3. Check [existing issues](https://github.com/cinepro-org/core/issues) to see what's being worked on
 4. Read our [Code of Conduct](CODE_OF_CONDUCT.md)
 
@@ -58,15 +57,12 @@ npm run dev
     - Add comments for complex logic
     - Use meaningful variable and function names
 
-Note that the `@omss/framework` does not support single provider tests yet. If you want to test a single provider, create a file called test.ts in the provider's directory and add: 
+To test a single provider, create a file called test.ts in the provider's directory and add: 
 
 ```typescript
-import { ProviderMediaObject } from "@omss/framework"
-import {ExampleProvider} from "./example.js"
-
 const prov = new ExampleProvider()
 
-const mediaObj: ProviderMediaObject = {
+const mediaObj = {
   title: "The Dark Knight",
   tmdbId: "155",
   releaseYear: "2008",
@@ -92,11 +88,9 @@ When testing the whole setup, make sure to set `INTERNAL_DEBUG` to `true` in you
 
 #### 3. Adding a New Provider
 
-When adding a new provider, follow the [OMSS Framework provider guide](https://github.com/omss-spec/framework#creating-custom-providers).
-
 **Provider Checklist:**
 
-- [ ] Extends `BaseProvider` from `@omss/framework`
+- [ ] Extends the project's provider base class
 - [ ] Has unique `id` and descriptive `name`
 - [ ] Declares correct `capabilities` (movies/tv support)
 - [ ] Implements `getMovieSources()` and/or `getTVSources()`
@@ -111,8 +105,6 @@ When adding a new provider, follow the [OMSS Framework provider guide](https://g
 **Example Provider Structure:**
 
 ```typescript
-import { BaseProvider } from '@omss/framework';
-
 export class MyProvider extends BaseProvider {
     readonly id = 'my-provider';
     readonly name = 'My Provider';

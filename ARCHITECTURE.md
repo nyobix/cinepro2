@@ -315,7 +315,7 @@ Cost: $0 (free tier covers 5,000+ users)
            │ from Railway                     │
            ▼                                  ▼
     ┌──────────────────────────────────────────────────────┐
-    │          Railway Backend (OMSS Server)                │
+    │          Railway Backend (CinePro Server)             │
     │  ┌─────────────────────────────────────────────────┐ │
     │  │ HTTP Endpoints:                                 │ │
     │  │ ├─ GET /api/streams/:mediaId (Check cache)     │ │
@@ -375,7 +375,6 @@ Cost: $0 (free tier covers 5,000+ users)
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | **Backend** | Node.js + TypeScript | Runtime and type safety |
-| **Framework** | @omss/framework | Streaming protocol standard |
 | **Cache** | Redis / Memory | Session and link caching |
 | **Database** | Supabase / Firebase | Persistent storage |
 | **Metadata** | TMDB API | Movie/show information |

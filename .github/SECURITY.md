@@ -2,10 +2,7 @@
 
 ## Overview
 
-CinePro Core is built on top of the [@omss/framework](https://github.com/omss-spec/framework), which handles the core backend logic, routing, and security features. This repository primarily contains provider implementations and configuration.
-
-> [!IMPORTANT]
-> Security vulnerabilities should be reported to the appropriate project based on where the issue originates.
+CinePro Core primarily contains provider implementations and configuration.
 
 ## Supported Versions
 
@@ -20,24 +17,7 @@ We support the latest version of CinePro Core with security updates.
 
 ### Where to Report
 
-Before reporting a security vulnerability, please determine where the issue originates:
-
-#### 1. Framework-Level Vulnerabilities
-
-If the vulnerability is related to:
-
-- Core routing or API endpoints
-- Proxy system implementation
-- TMDB integration
-- Cache system (Redis/Memory)
-- Request/response handling
-- OMSS specification compliance
-
-**→ Report to [@omss/framework](https://github.com/omss-spec/framework/security/advisories/new)**
-
-These issues are handled by the OMSS framework maintainers.
-
-#### 2. Underlying Dependencies
+#### 1. Underlying Dependencies
 
 If the vulnerability is in:
 
@@ -45,13 +25,12 @@ If the vulnerability is in:
 - **Node.js**: [Report to Node.js Security Team](https://nodejs.org/en/security/)
 - **Other dependencies**: Check the respective project's security policy
 
-#### 3. CinePro Core Specific Vulnerabilities
+#### 2. CinePro Core Specific Vulnerabilities
 
 Report to CinePro Core if the vulnerability is specific to:
 
 - Provider implementations in `src/providers/`
 - Custom configuration or environment handling
-- CinePro-specific code not part of the OMSS framework
 
 **→ Report via GitHub Security Advisories**: [Create a Security Advisory](https://github.com/cinepro-org/core/security/advisories/new)
 
@@ -69,7 +48,6 @@ When reporting a vulnerability, please include:
 6. **Suggested Fix**: If you have ideas on how to fix it (optional)
 7. **Environment Details**:
     - CinePro Core version
-    - @omss/framework version
     - Node.js version
     - Operating system
 
@@ -146,7 +124,6 @@ Provider implementations scrape third-party websites. Be aware that:
 - Third-party sites may contain malicious content
 - Provider availability and safety can change
 - Use at your own risk and comply with applicable laws
-- The OMSS framework's proxy system provides some isolation
 
 ### Dependency Chain
 
@@ -154,7 +131,6 @@ Our dependencies include:
 
 ```json
 {
-    "@omss/framework": "^1.1.10", // Core backend logic
     "crypto-js": "^4.2.0", // Cryptographic utilities
     "dotenv": "^16.4.5" // Environment configuration
 }

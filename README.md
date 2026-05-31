@@ -117,12 +117,6 @@ npm run dev
 - Redis in production, memory in development
 - Automatic cache invalidation
 
-### 🎬 OMSS-Compliant API
-- Standard streaming protocol
-- Stremio addon support
-- MCP (AI agents) ready
-- RESTful HTTP endpoints
-
 ### 🌐 Browser Extension
 - CORS bypass
 - Cloudflare support

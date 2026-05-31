@@ -43,7 +43,6 @@ body:
               - Operating System: (e.g., Windows 11, macOS 14, Ubuntu 22.04)
               - Node.js version: (run `node --version`)
               - CinePro Core version: (from package.json)
-              - @omss/framework version: (from package.json)
               - Cache Type: (memory/redis)
               - Using Proxy/VPN: (yes/no)
           render: yaml

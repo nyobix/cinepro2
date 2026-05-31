@@ -1,12 +1,9 @@
 # Pull Request
 
 <!--
-Thank you for contributing to the Open Media Source Scraper! Please fill out the following template to help us understand your changes and review them effectively.
-
+Thank you for contributing to CinePro! Please fill out the following template to help us understand your changes and review them effectively.
 
 **Please enable `Allow edits from maintainers` so we can make any necessary adjustments to your PR.**
-
-
 -->
 
 ## Description
@@ -91,7 +88,7 @@ Paste relevant API response or logs here
 
 ### Provider Checklist (if adding/modifying a provider)
 
-- [ ] Provider extends `BaseProvider` from `@omss/framework`
+- [ ] Provider extends the project's base provider class
 - [ ] Provider has a unique `id` and descriptive `name`
 - [ ] Provider declares correct `capabilities` (movies/tv support)
 - [ ] Implements `getMovieSources()` and/or `getTVSources()` correctly
