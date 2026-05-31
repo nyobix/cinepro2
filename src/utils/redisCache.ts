@@ -1,33 +1,37 @@
 import Redis from 'ioredis';
 
-const redis = new Redis({
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: Number(process.env.REDIS_PORT ?? 6379),
-    password: process.env.REDIS_PASSWORD,
-    retryStrategy: (times) => Math.min(times * 50, 2000),
-});
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const REDIS_PORT = Number(process.env.REDIS_PORT) || 6379;
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
 
-redis.on('error', (err) => console.error('[Redis] Connection Error:', err));
-redis.on('connect', () => console.log('[Redis] Connected successfully'));
+let redis: Redis | null = null;
 
-export const STREAM_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+if (process.env.CACHE_TYPE === 'redis') {
+    redis = new Redis({
+        host: REDIS_HOST,
+        port: REDIS_PORT,
+        password: REDIS_PASSWORD,
+        retryStrategy: (times) => Math.min(times * 50, 2000),
+    });
 
-/**
- * Standardized interface for stream links
- */
+    redis.on('error', (err) => {
+        console.error('[Redis] Error:', err);
+    });
+}
+
+const STREAM_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+
 export interface CachedStream {
     url: string;
     quality?: string;
+    source: string;
     headers?: Record<string, string>;
-    providerId: string;
 }
 
-/**
- * Retrieves cached streams for a specific media ID and provider.
- */
 export async function getCachedStreams(mediaId: string, providerId: string): Promise<CachedStream[] | null> {
+    if (!redis) return null;
     try {
-        const key = `stream:${providerId}:${mediaId}`;
+        const key = `streams:${providerId}:${mediaId}`;
         const data = await redis.get(key);
         return data ? (JSON.parse(data) as CachedStream[]) : null;
     } catch (err) {
@@ -36,14 +40,11 @@ export async function getCachedStreams(mediaId: string, providerId: string): Pro
     }
 }
 
-/**
- * Caches streams with a 7-day expiration.
- */
 export async function setCachedStreams(mediaId: string, providerId: string, streams: CachedStream[]): Promise<void> {
+    if (!redis) return;
     try {
-        const key = `stream:${providerId}:${mediaId}`;
-        await redis.setex(key, STREAM_CACHE_TTL, JSON.stringify(streams));
-        console.log(`[Redis] Cached ${streams.length} links for ${mediaId} via ${providerId}`);
+        const key = `streams:${providerId}:${mediaId}`;
+        await redis.set(key, JSON.stringify(streams), 'EX', STREAM_CACHE_TTL);
     } catch (err) {
         console.error('[Redis] Set error:', err);
     }

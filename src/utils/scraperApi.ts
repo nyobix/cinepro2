@@ -1,44 +1,44 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
 
-/**
- * Utility to route requests through Scraper API for rotating IPs.
- */
+const SCRAPER_API_KEY = process.env.SCRAPER_API_KEY;
+const PROXY_ENABLED = process.env.PROXY_ENABLED === 'true';
+const PROXY_ROTATION = process.env.PROXY_ROTATION === 'true';
+
 export async function scraperFetch<T = any>(
     url: string,
     options: AxiosRequestConfig = {}
 ): Promise<AxiosResponse<T>> {
-    const apiKey = process.env.SCRAPER_API_KEY;
-    const proxyEnabled = process.env.PROXY_ENABLED === 'true';
-
-    if (!apiKey || !proxyEnabled) {
-        if (proxyEnabled && !apiKey) {
-            console.warn('[ScraperAPI] Proxy is enabled but SCRAPER_API_KEY is missing. Falling back to direct request.');
-        }
-        return axios.request<T>({ url, ...options });
+    if (!PROXY_ENABLED || !SCRAPER_API_KEY) {
+        return axios({ url, ...options });
     }
 
     const scraperUrl = 'https://api.scraperapi.com/';
-    const proxyRotation = process.env.PROXY_ROTATION === 'true';
     
     const config: AxiosRequestConfig = {
         ...options,
-        method: options.method ?? 'GET',
+        url: scraperUrl,
         params: {
             ...options.params,
-            api_key: apiKey,
+            api_key: SCRAPER_API_KEY,
             url: url,
-            // Some ScraperAPI plans use specific flags for high-quality rotation
-            premium: proxyRotation, 
+            premium: PROXY_ROTATION,
         }
     };
 
     try {
-        return await axios.request<T>({ ...config, url: scraperUrl });
+        return await axios(config);
     } catch (error: any) {
         console.error(`[ScraperAPI] Error fetching ${url}:`, error.message);
         throw error;
     }
 }
 
-export const scraperFetchText = (url: string, options?: AxiosRequestConfig) => 
-    scraperFetch<string>(url, { ...options, responseType: 'text' });
+export async function scraperFetchText(url: string, options: AxiosRequestConfig = {}): Promise<string> {
+    const response = await scraperFetch<string>(url, { ...options, responseType: 'text' });
+    return response.data;
+}
+
+export async function scraperFetchJson<T = any>(url: string, options: AxiosRequestConfig = {}): Promise<T> {
+    const response = await scraperFetch<T>(url, { ...options, responseType: 'json' });
+    return response.data;
+}

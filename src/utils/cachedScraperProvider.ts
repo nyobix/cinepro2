@@ -1,4 +1,4 @@
-import { getCachedStreams, setCachedStreams, CachedStream } from './redisCache.js';
+import { getCachedStreams, setCachedStreams, type CachedStream } from './redisCache.js';
 
 /**
  * Helper to handle the cache-first scraping logic.
