@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = Number(process.env.REDIS_PORT) || 6379;
@@ -11,10 +11,10 @@ if (process.env.CACHE_TYPE === 'redis') {
         host: REDIS_HOST,
         port: REDIS_PORT,
         password: REDIS_PASSWORD,
-        retryStrategy: (times) => Math.min(times * 50, 2000),
+        retryStrategy: (times: number) => Math.min(times * 50, 2000),
     });
 
-    redis.on('error', (err) => {
+    redis.on('error', (err: Error) => {
         console.error('[Redis] Error:', err);
     });
 }
