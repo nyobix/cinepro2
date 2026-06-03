@@ -4,7 +4,7 @@ const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = Number(process.env.REDIS_PORT) || 6379;
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
 
-let redis: Redis | null = null;
+export let redis: Redis | null = null;
 
 if (process.env.CACHE_TYPE === 'redis') {
     redis = new Redis({
@@ -47,5 +47,15 @@ export async function setCachedStreams(mediaId: string, providerId: string, stre
         await redis.set(key, JSON.stringify(streams), 'EX', STREAM_CACHE_TTL);
     } catch (err) {
         console.error('[Redis] Set error:', err);
+    }
+}
+
+export async function invalidateCache(mediaId: string, providerId: string): Promise<void> {
+    if (!redis) return;
+    try {
+        const key = `streams:${providerId}:${mediaId}`;
+        await redis.del(key);
+    } catch (err) {
+        console.error('[Redis] Invalidate error:', err);
     }
 }
