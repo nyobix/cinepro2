@@ -1,12 +1,16 @@
 import { Request, Response } from 'express';
-import { StreamCache } from '../../cache/StreamCache';
-import { Database } from '../../db/Database';
+import { StreamCache } from './StreamCache';
+import { Database } from './Database';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 
 export async function getStream(req: Request, res: Response) {
   const { mediaId } = req.params;
-  const mediaInfo = req.query; // { title, year, type }
+  const { title, year, type } = req.query;
 
   try {
+    if (!mediaId) return res.status(400).json({ error: 'Media ID required' });
+
     // 1. Check Redis (Hot Cache - 3 days)
     const cachedLinks = await StreamCache.get(mediaId);
     if (cachedLinks) {
@@ -30,25 +34,75 @@ export async function getStream(req: Request, res: Response) {
       });
     }
 
-    // 4. No one is scraping - Try to acquire the lock
-    const locked = await StreamCache.acquireScrapeLock(mediaId);
-    if (!locked) {
-      return res.status(202).json({ status: 'pending', message: 'Scrape started elsewhere.' });
+    // 4. No one is scraping - Acquire lock and use Scraper API
+    // This prevents multiple users from wasting Scraper API credits on the same movie
+    const hasLock = await StreamCache.acquireScrapeLock(mediaId);
+    if (!hasLock) {
+      return res.status(202).json({ 
+        status: 'pending', 
+        message: 'Scrape in progress by another user. Please retry in 5 seconds.' 
+      });
     }
 
-    // 5. Trigger Scraper (Hybrid Extension or Server-side API)
-    // We return a specialized status to the frontend to trigger the extension
-    return res.status(404).json({
-      status: 'scrape_required',
-      action: 'TRIGGER_EXTENSION_OR_API',
-      mediaId,
-      payload: mediaInfo
-    });
+    try {
+      // Use the Scraper API key from your Railway vars to bypass Cloudflare/IP bans
+      const targetUrl = `https://vidsrc.to/embed/${type}/${mediaId}`;
+      const scraperUrl = `https://api.scraperapi.com?api_key=${process.env.SCRAPER_API_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`;
+      
+      const response = await axios.get(scraperUrl, { timeout: 30000 });
+      const sources = parseSources(response.data); 
+
+      if (sources && sources.length > 0) {
+        const streamsToSave = sources.map(s => ({
+          ...s,
+          mediaId,
+          mediaType: type,
+          title,
+          year,
+          expiresAt: new Date(Date.now() + 3600000) // Links expire in 1 hour
+        }));
+
+        // Parallel save for efficiency
+        await Promise.all([
+          Database.saveStreams(streamsToSave),
+          StreamCache.set(mediaId, sources)
+        ]);
+        
+        await StreamCache.set(mediaId, sources);
+        
+        return res.json({ status: 'success', sources, from: 'scraper_api_fresh' });
+      }
+
+      return res.status(404).json({ error: 'No streams found via Scraper API' });
+    } finally {
+      // Always release the lock
+      await StreamCache.releaseScrapeLock(mediaId);
+    }
 
   } catch (error) {
     console.error('Stream Fetch Error:', error);
     res.status(500).json({ error: 'System overloaded. Please try again.' });
   }
+}
+
+function parseSources(html: string) {
+  const $ = cheerio.load(html);
+  const links: any[] = [];
+  
+  // Logic to find streaming links in the DOM
+  $('a[href*="m3u8"], source[src*="m3u8"]').each((_, el) => {
+    const url = $(el).attr('href') || $(el).attr('src');
+    if (url) {
+      links.push({
+        url,
+        quality: 'Auto',
+        source: 'VidSrc',
+        priority: 1
+      });
+    }
+  });
+
+  return links;
 }
 
 /**
