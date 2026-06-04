@@ -408,8 +408,12 @@ METADATA_CACHE_TTL=604800  # 7 days for metadata
 # API Keys
 TMDB_API_KEY=your_tmdb_key
 
+# Database (Supabase Transaction Pooler)
+# Port 6543 handles high concurrency for 5,000+ users. sslmode=require is mandatory for Supabase.
+DATABASE_URL="postgresql://postgres.sfrrpkzplryewkkhxjyo:[PASSWORD]@aws-1-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require"
+
 # CORS (Allow web UI origin)
-CORS_ORIGIN=https://cinepro.cc,https://ui.cinepro.cc
+CORS_ORIGIN=https://your-frontend-domain.com,http://localhost:3000
 
 # Optional Features
 STREMIO_ADDON=false  # Enable Stremio compatibility

@@ -10,55 +10,62 @@ export async function resolveWithCache(
     providerId: string,
     scraperTask: () => Promise<CachedStream[]>,
     dbCheck?: (mediaId: string, providerId: string) => Promise<CachedStream[] | null>,
-    dbSave?: (mediaId: string, providerId: string, streams: CachedStream[]) => Promise<void>
+    dbSave?: (mediaId: string, providerId: string, streams: CachedStream[]) => Promise<void>,
+    attempt: number = 0
 ): Promise<CachedStream[]> {
-    // 1. Scenario A: Absolute Cache HIT (Redis)
+    const MAX_STAMPEDE_RETRIES = 3;
+
+    // --- Scenario A: Absolute Cache HIT (Redis) ---
     const cached = await getCachedStreams(mediaId, providerId);
     if (cached && cached.length > 0) {
-        console.log(`[Redis Hit] Serving ${cached.length} links for ${mediaId}`);
+        console.log(`[Scenario A] Redis Hit: Serving ${cached.length} links for ${mediaId}`);
         return cached;
     }
 
-    // 2. Scenario B: Tier-2 Cache HIT (Supabase/Database)
+    // --- Scenario B: Tier-2 Cache HIT (Supabase Vault) ---
     if (dbCheck) {
         const dbCached = await dbCheck(mediaId, providerId);
         if (dbCached && dbCached.length > 0) {
-            console.log(`[DB Hit] Re-warming Redis for ${mediaId}`);
-            // Re-warm Redis asynchronously to keep this request fast
-            setCachedStreams(mediaId, providerId, dbCached).catch(err => 
-                console.error('[Redis Re-warm Error]:', err)
+            console.log(`[Scenario B] DB Hit: Returning data and re-warming Redis for ${mediaId}`);
+            // Background Re-warm: Do not await, let the response return immediately
+            setCachedStreams(mediaId, providerId, dbCached).catch(err =>
+                console.error('[Redis Re-warm Error]:', err),
             );
             return dbCached;
         }
     }
 
-    // 3. Scenario C: Ultimate Cache MISS & Stampede Protection
+    // --- Scenario C: Ultimate Cache MISS & Stampede Protection ---
     const lockKey = `lock:${providerId}:${mediaId}`;
     if (!redis) return await scraperTask();
 
-    // Acquire distributed lock (SET NX EX)
+    // Attempt to acquire distributed lock (SET NX EX) - valid for 15 seconds
     const acquired = await redis.set(lockKey, 'locked', 'EX', 15, 'NX');
-    
-    if (acquired !== 'OK') {
+
+    if (acquired !== 'OK' && attempt < MAX_STAMPEDE_RETRIES) {
         // Loser pathway: Wait and check Redis again
-        console.log(`[Cache Stampede] Concurrent request detected for ${mediaId}. Waiting 500ms...`);
+        console.log(`[Scenario C] Stampede Protection: Waiting 500ms for ${mediaId} (Attempt ${attempt + 1})`);
         await new Promise(resolve => setTimeout(resolve, 500));
-        // Recursively check cache/DB again
-        return await resolveWithCache(mediaId, providerId, scraperTask, dbCheck, dbSave);
+
+        // Re-check both cache layers
+        return await resolveWithCache(mediaId, providerId, scraperTask, dbCheck, dbSave, attempt + 1);
     }
 
     try {
-        // Winner pathway: Execute the scraper
+        // Winner pathway: Only one process executes the expensive scraper task
+        console.log(`[Scenario C] Lock Acquired: Executing scraper for ${mediaId}`);
         const freshLinks = await scraperTask();
 
         if (freshLinks.length > 0) {
-            // Simultaneously update DB and Redis to avoid stale data (Invalidation Skew)
-            if (dbSave) await dbSave(mediaId, providerId, freshLinks);
-            await setCachedStreams(mediaId, providerId, freshLinks);
+            // Critical: Align both layers simultaneously to prevent Invalidation Skew
+            await Promise.all([
+                dbSave ? dbSave(mediaId, providerId, freshLinks) : Promise.resolve(),
+                setCachedStreams(mediaId, providerId, freshLinks),
+            ]);
         }
         return freshLinks;
     } finally {
-        // Release lock for future requests or errors
+        // Release lock immediately after work is done or on error
         await redis.del(lockKey);
     }
 }

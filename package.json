@@ -12,6 +12,7 @@
     "dependencies": {
         "@omss/framework": "^1.1.19",
         "@supabase/supabase-js": "^2.45.4",
+        "postgres": "^3.4.4",
         "axios": "^1.7.7",
         "cheerio": "^1.2.0",
         "cors": "^2.8.5",

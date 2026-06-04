@@ -155,8 +155,12 @@ METADATA_CACHE_TTL=604800    # 7 days
 # API Keys
 TMDB_API_KEY=your_tmdb_api_key
 
+# Database
+# Using Supabase Shared Pooler to handle 5,000+ users
+DATABASE_URL="postgresql://postgres.sfrrpkzplryewkkhxjyo:[YOUR-PASSWORD]@aws-1-us-west-2.pooler.supabase.com:5432/postgres?pgbouncer=true"
+
 # CORS
-CORS_ORIGIN=https://cinepro.cc,https://ui.cinepro.cc
+CORS_ORIGIN=https://your-frontend-domain.com
 
 # Features
 STREMIO_ADDON=false

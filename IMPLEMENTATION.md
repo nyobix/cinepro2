@@ -503,19 +503,21 @@ export class DatabaseManager {
    * Get all non-expired streams for media
    */
   async getStreams(mediaId: string, quality?: string): Promise<any[]> {
-    const { data, error } = await this.client
-      .from('streams')
-      .select('*')
-      .eq('media_id', mediaId)
-      .gt('expires_at', new Date().toISOString());
-
-    if (error) throw error;
-
-    if (quality) {
-      return data.filter((s: any) => s.quality === quality);
+    try {
+      return await this.sql`
+        SELECT * FROM streams 
+        WHERE media_id = ${mediaId} 
+        AND expires_at > NOW()
+        ${quality ? this.sql`AND quality = ${quality}` : this.sql``}
+        ORDER BY priority DESC
+      `;
+    } catch (err) {
+      console.error('Error fetching streams:', err);
+      return [];
     }
+  }
 
-    return data;
+    return streams;
   }
 
   /**
@@ -620,7 +622,7 @@ async function checkCache(cache: RedisCache) {
   },
   "content_scripts": [
     {
-      "matches": ["https://cinepro.cc/*"],
+      "matches": ["https://your-frontend-domain.com/*", "http://localhost/*"],
       "js": ["content.js"],
       "all_frames": false
     }
