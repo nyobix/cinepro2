@@ -62,13 +62,12 @@ export async function getStream(req: Request, res: Response) {
           expiresAt: new Date(Date.now() + 3600000) // Links expire in 1 hour
         }));
 
-        // Parallel save for efficiency
+        // Parallel save for efficiency. 
+        // Cache TTL is set to 3600s (1 hour) to match link expiration.
         await Promise.all([
           Database.saveStreams(streamsToSave),
-          StreamCache.set(mediaId, sources)
+          StreamCache.set(mediaId, sources, 3600)
         ]);
-        
-        await StreamCache.set(mediaId, sources);
         
         return res.json({ status: 'success', sources, from: 'scraper_api_fresh' });
       }
@@ -119,8 +118,8 @@ export async function saveScrapedLinks(req: Request, res: Response) {
       expiresAt: new Date(Date.now() + 3600000) // 1 hour link validity
     })));
 
-    // Cache in Redis for 3 days
-    await StreamCache.set(mediaId, sources);
+    // Cache in Redis for 1 hour to match link expiration
+    await StreamCache.set(mediaId, sources, 3600);
 
     // Release the lock so others can see the data
     await StreamCache.releaseScrapeLock(mediaId);

@@ -21,13 +21,11 @@ ARG DESCRIPTION
 ARG SOURCE
 
 LABEL org.opencontainers.image.title="CinePro Core" \
-      org.opencontainers.image.description="${DESCRIPTION}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
-      org.opencontainers.image.source="${SOURCE}"
-
-LABEL org.opencontainers.image.description="CinePro Core is the central scraping and streaming engine of the CinePro ecosystem. It exposes an OMSS-compliant HTTP API for resolving movie and TV show streams from multiple providers."
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.description="CinePro Core is the central scraping and streaming engine of the CinePro ecosystem."
 
 ARG NODE_ENV=production
 ARG PORT=3000
@@ -39,7 +37,7 @@ ENV PORT=${PORT}
 ENV CACHE_TYPE=${CACHE_TYPE}
 
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
