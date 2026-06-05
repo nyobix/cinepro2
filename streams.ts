@@ -11,17 +11,17 @@ export async function getStream(req: Request, res: Response) {
   try {
     if (!mediaId) return res.status(400).json({ error: 'Media ID required' });
 
-    // 1. Check Redis (Hot Cache - 3 days)
+    // 1. Check Redis (Hot Cache - Primary layer for 10k user scalability)
     const cachedLinks = await StreamCache.get(mediaId);
     if (cachedLinks) {
       return res.json({ status: 'success', sources: cachedLinks, from: 'cache' });
     }
 
-    // 2. Check Supabase (Permanent Storage)
+    // 2. Check Supabase (Fallback layer - Persistent storage)
     const dbLinks = await Database.getValidStreams(mediaId);
     if (dbLinks && dbLinks.length > 0) {
-      // Hydrate Redis for the next user
-      await StreamCache.set(mediaId, dbLinks);
+      // Hydrate Redis for 3 days (259,200 seconds) so the next 5000 users don't hit Supabase
+      await StreamCache.set(mediaId, dbLinks, 259200);
       return res.json({ status: 'success', sources: dbLinks, from: 'database' });
     }
 
@@ -45,9 +45,10 @@ export async function getStream(req: Request, res: Response) {
     }
 
     try {
-      // Use the Scraper API key from your Railway vars to bypass Cloudflare/IP bans
+      // Use the provided Scraper API key to bypass Cloudflare and IP restrictions
+      const SCRAPER_KEY = 'e57edf0bdd17ac7aa7b2c31a67f98bc5';
       const targetUrl = `https://vidsrc.to/embed/${type}/${mediaId}`;
-      const scraperUrl = `https://api.scraperapi.com?api_key=${process.env.SCRAPER_API_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`;
+      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`;
       
       const response = await axios.get(scraperUrl, { timeout: 30000 });
       const sources = parseSources(response.data); 
@@ -59,14 +60,14 @@ export async function getStream(req: Request, res: Response) {
           mediaType: type,
           title,
           year,
-          expiresAt: new Date(Date.now() + 3600000) // Links expire in 1 hour
+          expiresAt: new Date(Date.now() + 259200000) // Data valid for 3 days
         }));
 
-        // Parallel save for efficiency. 
-        // Cache TTL is set to 3600s (1 hour) to match link expiration.
+        // Parallel save to both Database and Redis.
+        // Redis TTL is set to 3 days (259200s) as requested.
         await Promise.all([
           Database.saveStreams(streamsToSave),
-          StreamCache.set(mediaId, sources, 3600)
+          StreamCache.set(mediaId, sources, 259200)
         ]);
         
         return res.json({ status: 'success', sources, from: 'scraper_api_fresh' });
@@ -115,11 +116,11 @@ export async function saveScrapedLinks(req: Request, res: Response) {
     await Database.saveStreams(sources.map((s: any) => ({
       ...s,
       mediaId,
-      expiresAt: new Date(Date.now() + 3600000) // 1 hour link validity
+      expiresAt: new Date(Date.now() + 259200000) // 3 days validity
     })));
 
-    // Cache in Redis for 1 hour to match link expiration
-    await StreamCache.set(mediaId, sources, 3600);
+    // Cache in Redis for 3 days (259,200 seconds)
+    await StreamCache.set(mediaId, sources, 259200);
 
     // Release the lock so others can see the data
     await StreamCache.releaseScrapeLock(mediaId);
