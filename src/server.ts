@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
+import { getStream, saveScrapedLinks, reportDeadLink } from './api/streams.js';
+import { StreamCache } from './StreamCache.js';
+import { Database } from './Database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,6 +90,14 @@ async function main() {
     // Register providers
     const registry = server.getRegistry();
     await registry.discoverProviders(path.join(__dirname, './providers/'));
+
+    await StreamCache.init();
+    await Database.init();
+
+    const fastify = server.getInstance();
+    fastify.get('/api/streams/:mediaId', getStream);
+    fastify.post('/api/streams', saveScrapedLinks);
+    fastify.post('/api/streams/report-dead', reportDeadLink);
 
     await server.start();
 
