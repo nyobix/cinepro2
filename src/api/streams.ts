@@ -1,6 +1,8 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import fs from 'fs';
+import path from 'path';
 import { StreamCache } from '../StreamCache.js';
 import { Database } from '../Database.js';
 
@@ -65,10 +67,47 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
       console.log(`Triggering Scraper API for ${targetUrl}`);
 
       const scraperUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(scraperKey)}&url=${encodeURIComponent(targetUrl)}&render=true&keep_headers=true&cb=${Date.now()}`;
-      const response = await axios.get(scraperUrl, { timeout: 30000 });
+      let response: any;
+      try {
+        response = await axios.get(scraperUrl, { timeout: 30000 });
+      } catch (err: any) {
+        console.error('[Streams] ScraperAPI request failed', {
+          message: err?.message,
+          code: err?.code,
+          status: err?.response?.status,
+        });
+
+        // Save response HTML if present for post-mortem
+        try {
+          const logsDir = path.resolve(process.cwd(), 'logs');
+          fs.mkdirSync(logsDir, { recursive: true });
+          const dump = err?.response?.data ? String(err.response.data).slice(0, 200000) : `No response body; error: ${err?.message}`;
+          const fileName = path.join(logsDir, `scraper_error_${mediaId}_${Date.now()}.html`);
+          fs.writeFileSync(fileName, dump, 'utf8');
+          console.error('[Streams] Wrote scraper error HTML to', fileName);
+        } catch (werr) {
+          console.error('[Streams] Failed to write scraper error file', werr);
+        }
+
+        return reply.status(502).send({ error: 'ScraperAPI request failed', details: err?.code || err?.message });
+      }
+
       const sources = parseSources(response.data, targetUrl);
 
       if (!sources || sources.length === 0) {
+        console.warn('[Streams] No sources extracted from ScraperAPI response for', mediaId);
+        // Dump a snippet of the HTML for debugging
+        try {
+          const logsDir = path.resolve(process.cwd(), 'logs');
+          fs.mkdirSync(logsDir, { recursive: true });
+          const html = response?.data ? String(response.data).slice(0, 200000) : 'NO_HTML';
+          const fileName = path.join(logsDir, `scraper_nosources_${mediaId}_${Date.now()}.html`);
+          fs.writeFileSync(fileName, html, 'utf8');
+          console.warn('[Streams] Saved ScraperAPI HTML sample to', fileName);
+        } catch (werr) {
+          console.error('[Streams] Failed to save HTML sample', werr);
+        }
+
         return reply.status(404).send({ error: 'No streams found via Scraper API' });
       }
 
