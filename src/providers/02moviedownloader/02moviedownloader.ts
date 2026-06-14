@@ -18,7 +18,7 @@ import { generateRandomUserAgent } from '../../utils/ua.js';
 export class MovieDownloader extends BaseProvider {
     readonly id = '02moviedownloader';
     readonly name = '02MovieDownloader';
-    readonly enabled = true;
+    readonly enabled = false; // uses cloudflare turnstile😔
     readonly BASE_URL = 'https://02moviedownloader.site';
     readonly HEADERS = {
         'User-Agent': '',
