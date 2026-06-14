@@ -4,6 +4,9 @@ import { Database } from './Database';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
+const THREE_DAYS_SECONDS = 259200;
+const THREE_DAYS_MS = THREE_DAYS_SECONDS * 1000;
+
 export async function getStream(req: Request, res: Response) {
   const { mediaId } = req.params;
   const { title, year, type } = req.query;
@@ -13,16 +16,16 @@ export async function getStream(req: Request, res: Response) {
 
     // 1. Check Redis (Hot Cache - Primary layer for 10k user scalability)
     const cachedLinks = await StreamCache.get(mediaId);
-    if (cachedLinks) {
-      return res.json({ status: 'success', sources: cachedLinks, from: 'cache' });
+    if (Array.isArray(cachedLinks) && cachedLinks.length > 0) {
+      return res.json({ status: 'success', sources: cachedLinks, source: 'cache_hot' });
     }
 
     // 2. Check Supabase (Fallback layer - Persistent storage)
     const dbLinks = await Database.getValidStreams(mediaId);
-    if (dbLinks && dbLinks.length > 0) {
-      // Hydrate Redis for 3 days (259,200 seconds) so the next 5000 users don't hit Supabase
-      await StreamCache.set(mediaId, dbLinks, 259200);
-      return res.json({ status: 'success', sources: dbLinks, from: 'database' });
+    if (Array.isArray(dbLinks) && dbLinks.length > 0) {
+      // Hydrate Redis so subsequent hits for this movie are instant
+      await StreamCache.set(mediaId, dbLinks, THREE_DAYS_SECONDS);
+      return res.json({ status: 'success', sources: dbLinks, source: 'database_persistent' });
     }
 
     // 3. Not in DB - Check if someone else is already scraping it
@@ -47,12 +50,15 @@ export async function getStream(req: Request, res: Response) {
     try {
       // Use the provided Scraper API key to bypass Cloudflare and IP restrictions
       const SCRAPER_KEY = 'e57edf0bdd17ac7aa7b2c31a67f98bc5';
-      const targetUrl = `https://vidsrc.to/embed/${type}/${mediaId}`;
-      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`;
+      // Normalize type for vidsrc (movie/tv)
+      const normalizedType = type === 'movies' ? 'movie' : type === 'series' ? 'tv' : type;
+      const targetUrl = `https://vidsrc.to/embed/${normalizedType}/${mediaId}`;
+      
+      console.log(`🚀 Triggering ScraperAPI for: ${targetUrl}`);
+      const scraperUrl = `https://api.scraperapi.com?api_key=${SCRAPER_KEY}&url=${encodeURIComponent(targetUrl)}&render=true&keep_headers=true&cb=${Date.now()}`;
       
       const response = await axios.get(scraperUrl, { timeout: 30000 });
-      const sources = parseSources(response.data); 
-
+      const sources = parseSources(response.data, targetUrl); 
       if (sources && sources.length > 0) {
         const streamsToSave = sources.map(s => ({
           ...s,
@@ -60,14 +66,14 @@ export async function getStream(req: Request, res: Response) {
           mediaType: type,
           title,
           year,
-          expiresAt: new Date(Date.now() + 259200000) // Data valid for 3 days
+          expiresAt: new Date(Date.now() + THREE_DAYS_MS)
         }));
 
-        // Parallel save to both Database and Redis.
-        // Redis TTL is set to 3 days (259200s) as requested.
-        await Promise.all([
+        // Parallel save to both Database and Redis. 
+        // allSettled ensures we return the stream even if one storage layer is slow.
+        await Promise.allSettled([
           Database.saveStreams(streamsToSave),
-          StreamCache.set(mediaId, sources, 259200)
+          StreamCache.set(mediaId, sources, THREE_DAYS_SECONDS)
         ]);
         
         return res.json({ status: 'success', sources, from: 'scraper_api_fresh' });
@@ -85,22 +91,42 @@ export async function getStream(req: Request, res: Response) {
   }
 }
 
-function parseSources(html: string) {
+function parseSources(html: string, providerUrl: string) {
   const $ = cheerio.load(html);
   const links: any[] = [];
   
-  // Logic to find streaming links in the DOM
-  $('a[href*="m3u8"], source[src*="m3u8"]').each((_, el) => {
-    const url = $(el).attr('href') || $(el).attr('src');
+  // 1. Look for sources in common player attributes and data tags
+  $('[data-config], [data-src], source, video').each((_, el) => {
+    const url = $(el).attr('data-src') || $(el).attr('src') || $(el).attr('href');
     if (url) {
+      const finalUrl = url.startsWith('//') ? `https:${url}` : url;
+      if (finalUrl.includes('m3u8') || finalUrl.includes('mp4') || finalUrl.includes('googlevideo')) {
+        links.push({
+          url: finalUrl,
+          quality: 'Auto',
+          source: 'VidSrc (HTML)',
+          priority: 1,
+          headers: { "Referer": "https://vidsrc.to/" } // Hardcoded referer is often safer
+        });
+      }
+    }
+  });
+
+  // 2. Regex extraction for JS-hidden links (Scraper API Rendered Content)
+  const fileRegex = /(?:file|url|src)["']?\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:m3u8|mp4|mkv)[^"']*)["']/g;
+  let match;
+  while ((match = fileRegex.exec(html)) !== null) {
+    const url = match[1].replace(/\\/g, ''); // Unescape slashes
+    if (!links.some(l => l.url === url)) {
       links.push({
         url,
         quality: 'Auto',
-        source: 'VidSrc',
-        priority: 1
+        source: 'VidSrc (Extracted)',
+        priority: 2,
+        headers: { "Referer": "https://vidsrc.to/" }
       });
     }
-  });
+  }
 
   return links;
 }
@@ -116,11 +142,11 @@ export async function saveScrapedLinks(req: Request, res: Response) {
     await Database.saveStreams(sources.map((s: any) => ({
       ...s,
       mediaId,
-      expiresAt: new Date(Date.now() + 259200000) // 3 days validity
+      expiresAt: new Date(Date.now() + THREE_DAYS_MS)
     })));
 
     // Cache in Redis for 3 days (259,200 seconds)
-    await StreamCache.set(mediaId, sources, 259200);
+    await StreamCache.set(mediaId, sources, THREE_DAYS_SECONDS);
 
     // Release the lock so others can see the data
     await StreamCache.releaseScrapeLock(mediaId);
