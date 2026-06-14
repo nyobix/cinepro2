@@ -19,7 +19,7 @@ if (process.env.CACHE_TYPE === 'redis') {
     });
 }
 
-const STREAM_CACHE_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+const STREAM_CACHE_TTL = 3 * 24 * 60 * 60; // 3 days in seconds
 
 export interface CachedStream {
     url: string;

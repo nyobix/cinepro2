@@ -22,7 +22,7 @@ export interface StreamLinkCache {
  */
 export class CacheService {
   private redis: Redis;
-  private readonly STREAM_LINK_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+  private readonly STREAM_LINK_TTL = 3 * 24 * 60 * 60; // 3 days in seconds
   private readonly CACHE_PREFIX = 'cinepro:stream:';
   private readonly METADATA_PREFIX = 'cinepro:meta:';
 

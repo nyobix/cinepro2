@@ -69,14 +69,22 @@ export async function getStream(req: Request, res: Response) {
           expiresAt: new Date(Date.now() + THREE_DAYS_MS)
         }));
 
-        // Parallel save to both Database and Redis. 
+        // Build proxied URLs so the browser can fetch media without custom headers.
+        const baseUrl = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+        const proxiedSources = sources.map(s => {
+          const data = JSON.stringify({ url: s.url, headers: s.headers || { Referer: 'https://vidsrc.to/' } });
+          const encoded = encodeURIComponent(data);
+          return { ...s, url: `${baseUrl}/v1/proxy?data=${encoded}` };
+        });
+
+        // Parallel save to both Database (original data) and Redis (proxied URLs).
         // allSettled ensures we return the stream even if one storage layer is slow.
         await Promise.allSettled([
           Database.saveStreams(streamsToSave),
-          StreamCache.set(mediaId, sources, THREE_DAYS_SECONDS)
+          StreamCache.set(mediaId, proxiedSources, THREE_DAYS_SECONDS)
         ]);
         
-        return res.json({ status: 'success', sources, from: 'scraper_api_fresh' });
+        return res.json({ status: 'success', sources: proxiedSources, from: 'scraper_api_fresh' });
       }
 
       return res.status(404).json({ error: 'No streams found via Scraper API' });
