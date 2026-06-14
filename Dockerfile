@@ -41,8 +41,11 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /app/dist ./dist
 
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+# Create logs directory and ensure the runtime user owns it so the app can write logs.
+RUN mkdir -p /app/logs && \
+    addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app/logs
 
 USER nodejs
 
