@@ -66,10 +66,10 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
       const targetUrl = `https://vidsrc.to/embed/${normalizedType}/${mediaId}`;
       console.log(`Triggering Scraper API for ${targetUrl}`);
 
-      const scraperUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(scraperKey)}&url=${encodeURIComponent(targetUrl)}&render=true&keep_headers=true&cb=${Date.now()}`;
+      const scraperUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(scraperKey)}&url=${encodeURIComponent(targetUrl)}&render=true&keep_headers=true&wait_for=10000&country_code=us&cb=${Date.now()}`;
       let response: any;
       try {
-        response = await axios.get(scraperUrl, { timeout: 30000 });
+        response = await axios.get(scraperUrl, { timeout: 45000, headers: { 'Accept-Encoding': 'gzip' } });
       } catch (err: any) {
         console.error('[Streams] ScraperAPI request failed', {
           message: err?.message,
@@ -129,10 +129,13 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
         };
       });
 
-      await Promise.allSettled([
-        Database.saveStreams(streamsToSave),
-        StreamCache.set(mediaId, proxiedSources, THREE_DAYS_SECONDS),
-      ]);
+      if (Array.isArray(proxiedSources) && proxiedSources.length > 0) {
+        console.log(`[Streams] Caching ${proxiedSources.length} source(s) for ${mediaId}`);
+        await Promise.allSettled([
+          Database.saveStreams(streamsToSave),
+          StreamCache.set(mediaId, proxiedSources, THREE_DAYS_SECONDS),
+        ]);
+      }
 
       return reply.send({ status: 'success', sources: proxiedSources, from: 'scraper_api_fresh' });
     } finally {
@@ -240,7 +243,7 @@ function parseSources(html: string, providerUrl: string): StreamSource[] {
     }
   });
 
-  const fileRegex = /(?:file|url|src)["']?\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:m3u8|mp4|mkv)[^"']*)["']/g;
+  const fileRegex = /(?:file|url|src)["']?\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:m3u8|mp4|mkv)[^"']*)['"]/g;
   let match;
   while ((match = fileRegex.exec(html)) !== null) {
     const url = match[1].replace(/\\/g, '');
@@ -250,6 +253,36 @@ function parseSources(html: string, providerUrl: string): StreamSource[] {
         quality: 'Auto',
         source: 'VidSrc (Extracted)',
         priority: 2,
+        headers: { Referer: 'https://vidsrc.to/' },
+      });
+    }
+  }
+
+  // Broader HLS pattern: catch any https URL containing .m3u8 in various JS/JSON contexts
+  const hlsRegex = /["'`](https?:\/\/[^"'`\s]+\.m3u8[^"'`\s]*)[`"']/g;
+  while ((match = hlsRegex.exec(html)) !== null) {
+    const url = match[1].replace(/\\/g, '');
+    if (!links.some((l) => l.url === url)) {
+      links.push({
+        url,
+        quality: 'Auto',
+        source: 'VidSrc (HLS)',
+        priority: 3,
+        headers: { Referer: 'https://vidsrc.to/' },
+      });
+    }
+  }
+
+  // Catch escaped HLS URLs (e.g. from JSON blobs: "https:\/\/...\/index.m3u8")
+  const escapedHlsRegex = /https?:\\\/\\\/[^"'`\s]+\\\/[^"'`\s]*\.m3u8[^"'`\s]*/g;
+  while ((match = escapedHlsRegex.exec(html)) !== null) {
+    const url = match[0].replace(/\\/g, '');
+    if (!links.some((l) => l.url === url)) {
+      links.push({
+        url,
+        quality: 'Auto',
+        source: 'VidSrc (HLS Escaped)',
+        priority: 4,
         headers: { Referer: 'https://vidsrc.to/' },
       });
     }
