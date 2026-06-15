@@ -62,14 +62,31 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
         return reply.status(500).send({ error: 'Scraper API key is not configured' });
       }
 
+      const scraperProvider = (process.env.SCRAPER_PROVIDER || 'vixsrc').toLowerCase();
+      const providerBaseUrl =
+        scraperProvider === 'vidsrc' ? 'https://vidsrc.to' : 'https://vixsrc.to';
+      const providerName = scraperProvider === 'vidsrc' ? 'VidSrc' : 'VixSrc';
+      const providerReferer = providerBaseUrl;
+      const providerNestedDomains =
+        scraperProvider === 'vidsrc'
+          ? ['vsembed.ru', 'vidsrc.to']
+          : ['vixsrc.to'];
+
       const normalizedType = normalizeMediaType(type);
-      const targetUrl = `https://vidsrc.to/embed/${normalizedType}/${mediaId}`;
+      const targetUrl = `${providerBaseUrl}/embed/${normalizedType}/${mediaId}`;
       console.log(`Triggering Scraper API for ${targetUrl}`);
 
-      const scraperUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(scraperKey)}&url=${encodeURIComponent(targetUrl)}&render=true&keep_headers=true&cb=${Date.now()}`;
+      const scraperUrl = getScraperApiUrl(targetUrl, scraperKey);
       let response: any;
       try {
-        response = await axios.get(scraperUrl, { timeout: 30000 });
+        response = await axios.get(scraperUrl, {
+          timeout: 45000,
+          headers: {
+            'Accept-Encoding': 'gzip, deflate, br',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+          },
+        });
       } catch (err: any) {
         console.error('[Streams] ScraperAPI request failed', {
           message: err?.message,
@@ -92,7 +109,14 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
         return reply.status(502).send({ error: 'ScraperAPI request failed', details: err?.code || err?.message });
       }
 
-      const sources = parseSources(response.data, targetUrl);
+      const sources = await parseSources(
+        response.data,
+        targetUrl,
+        scraperKey,
+        providerName,
+        providerReferer,
+        providerNestedDomains
+      );
 
       if (!sources || sources.length === 0) {
         console.warn('[Streams] No sources extracted from ScraperAPI response for', mediaId);
@@ -122,7 +146,7 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
 
       const baseUrl = process.env.PUBLIC_URL || `${request.protocol}://${request.headers.host || 'localhost'}`;
       const proxiedSources = sources.map((s) => {
-        const payload = JSON.stringify({ url: s.url, headers: s.headers || { Referer: 'https://vidsrc.to/' } });
+        const payload = JSON.stringify({ url: s.url, headers: s.headers || { Referer: providerReferer } });
         return {
           ...s,
           url: `${baseUrl}/v1/proxy?data=${encodeURIComponent(payload)}`,
@@ -220,40 +244,181 @@ function normalizeMediaType(type?: string): string {
   return lowered;
 }
 
-function parseSources(html: string, providerUrl: string): StreamSource[] {
+async function parseSources(
+  html: string,
+  providerUrl: string,
+  scraperKey: string | undefined,
+  providerName: string,
+  providerReferer: string,
+  providerNestedDomains: string[]
+): Promise<StreamSource[]> {
   const $ = cheerio.load(html);
   const links: StreamSource[] = [];
 
-  $('[data-config], [data-src], source, video').each((_, el) => {
-    const url = $(el).attr('data-src') || $(el).attr('src') || $(el).attr('href');
-    if (url) {
-      const finalUrl = url.startsWith('//') ? `https:${url}` : url;
-      if (finalUrl.includes('m3u8') || finalUrl.includes('mp4') || finalUrl.includes('googlevideo')) {
-        links.push({
-          url: finalUrl,
-          quality: 'Auto',
-          source: 'VidSrc (HTML)',
-          priority: 1,
-          headers: { Referer: 'https://vidsrc.to/' },
-        });
-      }
-    }
-  });
+  const pushLink = (url: string, source: string, priority = 1) => {
+    const finalUrl = normalizeUrl(url, providerUrl);
+    if (!finalUrl) return;
+    if (!isStreamUrl(finalUrl)) return;
+    if (links.some((l) => l.url === finalUrl)) return;
 
-  const fileRegex = /(?:file|url|src)["']?\s*[:=]\s*["'](https?:\/\/[^"']+\.(?:m3u8|mp4|mkv)[^"']*)["']/g;
-  let match;
-  while ((match = fileRegex.exec(html)) !== null) {
-    const url = match[1].replace(/\\/g, '');
-    if (!links.some((l) => l.url === url)) {
-      links.push({
-        url,
-        quality: 'Auto',
-        source: 'VidSrc (Extracted)',
-        priority: 2,
-        headers: { Referer: 'https://vidsrc.to/' },
-      });
+    links.push({
+      url: finalUrl,
+      quality: 'Auto',
+      source,
+      priority,
+      headers: { Referer: providerReferer },
+    });
+  };
+
+  const scanHtml = (content: string) => {
+    const inner$ = cheerio.load(content);
+
+    inner$('[data-config], [data-src], source, video').each((_, el) => {
+      const attrs = ['data-src', 'data-config', 'src', 'href'];
+      for (const attr of attrs) {
+        const value = inner$(el).attr(attr);
+        if (!value) continue;
+
+        if (attr === 'data-config') {
+          extractJsonUrls(value).forEach((url) => pushLink(url, `${providerName} (JSON)`, 1));
+        } else {
+          pushLink(value, `${providerName} (HTML)`, 1);
+        }
+      }
+    });
+
+    const inlineText = inner$('script').toArray().map((el) => inner$(el).html() || '').join('\n');
+    extractUrlsFromText(inlineText).forEach((url) => pushLink(url, `${providerName} (Script)`, 2));
+    extractUrlsFromText(content).forEach((url) => pushLink(url, `${providerName} (Text)`, 3));
+    extractStreamUrlsFromText(inlineText).forEach((url) => pushLink(url, `${providerName} (Stream JS)`, 1));
+    extractStreamUrlsFromText(content).forEach((url) => pushLink(url, `${providerName} (Stream HTML)`, 2));
+  };
+
+  scanHtml(html);
+
+  if (links.length === 0 && scraperKey) {
+    const iframeUrls = $('iframe[src]').toArray().map((el) => $(el).attr('src')).filter(Boolean) as string[];
+    const nestedCandidates = iframeUrls
+      .map((src) => normalizeUrl(src, providerUrl))
+      .filter(Boolean) as string[];
+
+    for (const nested of nestedCandidates) {
+      if (!providerNestedDomains.some((domain) => nested.includes(domain))) {
+        continue;
+      }
+
+      try {
+        console.warn('[Streams] Following nested iframe for', nested);
+        const nestedUrl = getScraperApiUrl(nested, scraperKey);
+        const nestedResponse = await axios.get(nestedUrl, {
+          timeout: 45000,
+          headers: {
+            'Accept-Encoding': 'gzip, deflate, br',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+          },
+        });
+        scanHtml(String(nestedResponse.data));
+      } catch (err: any) {
+        console.warn('[Streams] Nested iframe fetch failed for', nested, err?.message || err);
+      }
     }
   }
 
   return links;
+}
+
+function normalizeUrl(url: string, baseUrl: string): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  try {
+    return new URL(trimmed, baseUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+function isStreamUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes('.m3u8') || lower.includes('.mp4') || lower.includes('googlevideo');
+}
+
+function extractJsonUrls(str: string): string[] {
+  const urls: string[] = [];
+  try {
+    const parsed = JSON.parse(str.replace(/\s+/g, ' '));
+    collectUrls(parsed, urls);
+  } catch {
+    // ignore invalid JSON, fallback to text parsing
+    extractUrlsFromText(str).forEach((url) => urls.push(url));
+  }
+  return urls;
+}
+
+function collectUrls(value: any, out: string[]) {
+  if (typeof value === 'string') {
+    if (isStreamUrl(value)) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectUrls(item, out));
+    return;
+  }
+  if (typeof value === 'object' && value !== null) {
+    Object.values(value).forEach((item) => collectUrls(item, out));
+  }
+}
+
+function extractUrlsFromText(text: string): string[] {
+  const urls: string[] = [];
+  const regex = /https?:\/\/[^"'\s]+?(?:\.m3u8|\.mp4|\.mkv|googlevideo[^"'\s]*)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    urls.push(match[0].replace(/\\/g, ''));
+  }
+  return urls;
+}
+
+function extractStreamUrlsFromText(text: string): string[] {
+  const decoded = decodeEscapedText(text);
+  const urls = new Set<string>();
+
+  extractUrlsFromText(decoded).forEach((url) => urls.add(url));
+
+  const pattern = /(?:file|src|hls|url|manifest|playlist)\s*[:=]\s*["']([^"']+?(?:\.m3u8|\.mp4))["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(decoded)) !== null) {
+    urls.add(match[1].replace(/\\/g, ''));
+  }
+
+  const jsonLike = /\{[^}]*?(?:\.m3u8|\.mp4)[^}]*?\}/gi;
+  while ((match = jsonLike.exec(decoded)) !== null) {
+    extractUrlsFromText(match[0]).forEach((url) => urls.add(url));
+  }
+
+  return Array.from(urls);
+}
+
+function decodeEscapedText(text: string): string {
+  return text
+    .replace(/\\\\/g, '\\')
+    .replace(/\\\//g, '/')
+    .replace(/\\u0026/g, '&')
+    .replace(/\\x3d/g, '=')
+    .replace(/\\x26/g, '&');
+}
+
+function getScraperApiUrl(targetUrl: string, scraperKey: string): string {
+  const query = new URLSearchParams({
+    api_key: scraperKey,
+    url: targetUrl,
+    render: 'true',
+    keep_headers: 'true',
+    wait_for: '10000',
+    country_code: 'us',
+    cb: String(Date.now()),
+  });
+  return `https://api.scraperapi.com?${query.toString()}`;
 }
