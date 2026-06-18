@@ -125,10 +125,15 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
 
       const normalizedType = normalizeMediaType(type);
       const targetUrl =
-        `${providerBaseUrl}/embed/${normalizedType}?tmdb=${mediaId}` +
-        (normalizedType === 'tv'
-          ? `&season=${query.season || query.s || ''}&episode=${query.episode || query.e || ''}`
-          : '');
+        scraperProvider === 'vidsrc'
+          ? `${providerBaseUrl}/embed/${normalizedType}?tmdb=${mediaId}` +
+            (normalizedType === 'tv'
+              ? `&season=${query.season || query.s || ''}&episode=${query.episode || query.e || ''}`
+              : '')
+          : `${providerBaseUrl}/api/${normalizedType}/${mediaId}` +
+            (normalizedType === 'tv'
+              ? `/${query.season || query.s || ''}/${query.episode || query.e || ''}`
+              : '');
       console.log(`Triggering Scraper API for ${targetUrl}`);
 
       const scraperUrl = getScraperApiUrl(targetUrl, scraperKey);
