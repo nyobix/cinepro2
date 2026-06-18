@@ -13,8 +13,57 @@ interface StreamSource {
   url: string;
   quality?: string;
   source: string;
+  provider?: {
+    id: string;
+    name: string;
+  };
   priority?: number;
   headers?: Record<string, string>;
+}
+
+interface ProxyPayload {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+function createProvider(sourceName: string): { id: string; name: string } {
+  const name = sourceName?.trim() || 'Unknown';
+  return {
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+    name,
+  };
+}
+
+function wrapProxySource(source: StreamSource, baseUrl: string, defaultHeaders: Record<string, string>): StreamSource {
+  if (!source?.url) return source;
+  if (source.url.includes('/v1/proxy?data=')) return source;
+  const payload = JSON.stringify({ url: source.url, headers: source.headers || defaultHeaders });
+  return {
+    ...source,
+    provider: source.provider || createProvider(source.source),
+    url: `${baseUrl}/v1/proxy?data=${encodeURIComponent(payload)}`,
+  };
+}
+
+function filterHeaders(headers: Record<string, any>) {
+  const hopByHop = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailers',
+    'transfer-encoding',
+    'upgrade',
+  ]);
+  return Object.entries(headers).reduce((acc, [key, value]) => {
+    if (!key) return acc;
+    const lowerKey = key.toLowerCase();
+    if (hopByHop.has(lowerKey)) return acc;
+    if (value === undefined || value === null) return acc;
+    acc[key] = Array.isArray(value) ? value.join(',') : String(value);
+    return acc;
+  }, {} as Record<string, string>);
 }
 
 export async function getStream(request: FastifyRequest, reply: FastifyReply) {
@@ -31,13 +80,15 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
   try {
     const cachedLinks = await StreamCache.get(mediaId);
     if (Array.isArray(cachedLinks) && cachedLinks.length > 0) {
-      return reply.send({ status: 'success', sources: cachedLinks, source: 'cache_hot' });
+      return reply.send({ status: 'success', data: { sources: cachedLinks }, source: 'cache_hot' });
     }
 
     const dbLinks = await Database.getValidStreams(mediaId);
     if (Array.isArray(dbLinks) && dbLinks.length > 0) {
-      await StreamCache.set(mediaId, dbLinks, THREE_DAYS_SECONDS);
-      return reply.send({ status: 'success', sources: dbLinks, source: 'database_persistent' });
+      const baseUrl = process.env.PUBLIC_URL || `${request.protocol}://${request.headers.host || 'localhost'}`;
+      const proxiedLinks = dbLinks.map((link: StreamSource) => wrapProxySource(link, baseUrl, { Referer: 'https://vidsrc.to/' }));
+      await StreamCache.set(mediaId, proxiedLinks, THREE_DAYS_SECONDS);
+      return reply.send({ status: 'success', data: { sources: proxiedLinks }, source: 'database_persistent' });
     }
 
     const inProgress = await StreamCache.isScrapeInProgress(mediaId);
@@ -64,7 +115,7 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
 
       const scraperProvider = (process.env.SCRAPER_PROVIDER || 'vixsrc').toLowerCase();
       const providerBaseUrl =
-        scraperProvider === 'vidsrc' ? 'https://vidsrc.to' : 'https://vixsrc.to';
+        scraperProvider === 'vidsrc' ? 'https://vsembed.ru' : 'https://vixsrc.to';
       const providerName = scraperProvider === 'vidsrc' ? 'VidSrc' : 'VixSrc';
       const providerReferer = providerBaseUrl;
       const providerNestedDomains =
@@ -73,7 +124,11 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
           : ['vixsrc.to'];
 
       const normalizedType = normalizeMediaType(type);
-      const targetUrl = `${providerBaseUrl}/embed/${normalizedType}/${mediaId}`;
+      const targetUrl =
+        `${providerBaseUrl}/embed/${normalizedType}?tmdb=${mediaId}` +
+        (normalizedType === 'tv'
+          ? `&season=${query.season || query.s || ''}&episode=${query.episode || query.e || ''}`
+          : '');
       console.log(`Triggering Scraper API for ${targetUrl}`);
 
       const scraperUrl = getScraperApiUrl(targetUrl, scraperKey);
@@ -158,13 +213,51 @@ export async function getStream(request: FastifyRequest, reply: FastifyReply) {
         StreamCache.set(mediaId, proxiedSources, THREE_DAYS_SECONDS),
       ]);
 
-      return reply.send({ status: 'success', sources: proxiedSources, from: 'scraper_api_fresh' });
+      return reply.send({ status: 'success', data: { sources: proxiedSources }, from: 'scraper_api_fresh' });
     } finally {
       await StreamCache.releaseScrapeLock(mediaId);
     }
   } catch (error) {
     console.error('Stream Fetch Error:', error);
     return reply.status(500).send({ error: 'System overloaded. Please try again.' });
+  }
+}
+
+export async function proxyStream(request: FastifyRequest, reply: FastifyReply) {
+  const query = request.query as Record<string, string | undefined>;
+  const data = query.data;
+
+  if (!data) {
+    return reply.status(400).send({ error: 'Missing proxy data payload' });
+  }
+
+  let payload: ProxyPayload;
+  try {
+    payload = JSON.parse(decodeURIComponent(data));
+  } catch (error) {
+    return reply.status(400).send({ error: 'Invalid proxy data payload' });
+  }
+
+  if (!payload.url) {
+    return reply.status(400).send({ error: 'Proxy payload missing url' });
+  }
+
+  try {
+    const response = await axios.get(payload.url, {
+      responseType: 'stream',
+      headers: {
+        ...filterHeaders(payload.headers || {}),
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+      },
+      timeout: 45000,
+    });
+
+    reply.headers(response.headers as any);
+    return reply.send(response.data);
+  } catch (error: any) {
+    console.error('[Proxy] Failed to fetch proxied URL', payload.url, error?.message || error);
+    return reply.status(502).send({ error: 'Failed to proxy stream URL', details: error?.message });
   }
 }
 

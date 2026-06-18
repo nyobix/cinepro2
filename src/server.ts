@@ -1,10 +1,10 @@
-import { OMSSServer } from '@omss/framework';
+import { OMSSServer, SourceService } from '@omss/framework';
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
-import { getStream, saveScrapedLinks, reportDeadLink } from './api/streams.js';
+import { getStream, saveScrapedLinks, reportDeadLink, proxyStream } from './api/streams.js';
 import { StreamCache } from './StreamCache.js';
 import { Database } from './Database.js';
 
@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REQUIRED_ENV = ['TMDB_API_KEY'];
+
 if (process.env.PROXY_ENABLED === 'true') {
     REQUIRED_ENV.push('SCRAPER_API_KEY');
 }
@@ -98,6 +99,7 @@ async function main() {
     fastify.get('/api/streams/:mediaId', getStream);
     fastify.post('/api/streams', saveScrapedLinks);
     fastify.post('/api/streams/report-dead', reportDeadLink);
+    fastify.get('/v1/proxy', proxyStream);
 
     await server.start();
 
