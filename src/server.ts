@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { knownThirdPartyProxies } from './thirdPartyProxies.js';
 import { streamPatterns } from './streamPatterns.js';
-import { getStream, saveScrapedLinks, reportDeadLink, proxyStream } from './api/streams.js';
+import { getStream, saveScrapedLinks, reportDeadLink } from './api/streams.js';
 import { StreamCache } from './StreamCache.js';
 import { Database } from './Database.js';
 
@@ -99,7 +99,6 @@ async function main() {
     fastify.get('/api/streams/:mediaId', getStream);
     fastify.post('/api/streams', saveScrapedLinks);
     fastify.post('/api/streams/report-dead', reportDeadLink);
-    fastify.get('/v1/proxy', proxyStream);
 
     await server.start();
 
