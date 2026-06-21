@@ -9,29 +9,47 @@ data class StreamSource(val url: String, val quality: String = "Auto")
 object ScraperManager {
     private val client = OkHttpClient()
 
-    // Very simple search: treat query as TMDB id or raw provider term
+    // Search using runtime provider configs loaded via ProviderLoader
     fun search(query: String): List<StreamSource> {
-        val providers = listOf("https://vixsrc.to/embed/movie?tmdb=", "https://vsembed.ru/embed/movie?tmdb=")
         val results = mutableListOf<StreamSource>()
+        val providers = ProviderLoader.getProviders()
 
         for (p in providers) {
-            val url = if (query.all { it.isDigit() }) p + query else p + query
+            val target = buildTargetUrl(p, query) ?: continue
             try {
-                val req = Request.Builder().url(url).header("User-Agent","Mozilla/5.0").build()
-                val resp = client.newCall(req).execute()
+                val rb = Request.Builder().url(target)
+                p.headers.forEach { (k, v) -> rb.header(k, v) }
+                rb.header("User-Agent", "Mozilla/5.0")
+                val resp = client.newCall(rb.build()).execute()
                 if (!resp.isSuccessful) continue
                 val body = resp.body?.string() ?: continue
                 val doc = Jsoup.parse(body)
                 val text = doc.html()
-                // naive extraction
-                val regex = Regex("https?:\\/\\/[^\"'\\s]+?(?:\\.m3u8|\\.mp4|googlevideo)[^\"'\\s]*")
-                val found = regex.findAll(text).map { it.value.replace("\\\"","") }.toSet()
-                for (f in found) results.add(StreamSource(f))
+                for (regexStr in p.streamRegexes) {
+                    val regex = Regex(regexStr)
+                    val found = regex.findAll(text).map { it.value.replace("\\\"", "") }.toSet()
+                    for (f in found) results.add(StreamSource(f))
+                }
             } catch (e: Exception) {
-                // continue
+                // continue on provider failure
             }
         }
 
         return results
+    }
+
+    private fun buildTargetUrl(p: ProviderConfig, query: String): String? {
+        val isId = query.all { it.isDigit() }
+        return when (p.type) {
+            "embed" -> {
+                val tmpl = p.embedTemplate ?: return null
+                tmpl.replace("{type}", if (isId) "movie" else "movie").replace("{id}", query).let { p.baseUrl.trimEnd('/') + it }
+            }
+            "api" -> {
+                val tmpl = p.apiTemplate ?: return null
+                tmpl.replace("{id}", query).let { p.baseUrl.trimEnd('/') + it }
+            }
+            else -> null
+        }
     }
 }

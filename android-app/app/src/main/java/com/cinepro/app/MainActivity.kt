@@ -17,6 +17,16 @@ class MainActivity : AppCompatActivity() {
         val searchBtn = findViewById<Button>(R.id.search_btn)
         val list = findViewById<RecyclerView>(R.id.results_list)
 
+        // initialize provider loader
+        ProviderLoader.init(this)
+        // optionally update provider configs from remote (non-blocking)
+        Thread {
+            val remoteUrl = ProviderLoader.getRemoteConfigUrl()
+            if (!remoteUrl.isNullOrBlank()) {
+                ProviderUpdater.updateFromUrl(this, remoteUrl)
+            }
+        }.start()
+
         list.layoutManager = LinearLayoutManager(this)
         val adapter = SourcesAdapter { sourceUrl ->
             val intent = Intent(this, PlayerActivity::class.java)
@@ -28,7 +38,7 @@ class MainActivity : AppCompatActivity() {
         searchBtn.setOnClickListener {
             val query = searchInput.text.toString().trim()
             if (query.isNotEmpty()) {
-                // Run scraping in background thread
+                // Run scraping in background thread using provider configs
                 Thread {
                     val sources = ScraperManager.search(query)
                     runOnUiThread {
